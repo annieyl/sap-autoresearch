@@ -14,6 +14,13 @@ This repo includes a small **autoresearch** harness that proposes changes to `re
 pip install -r requirements.txt
 ```
 
+If you see `ModuleNotFoundError: No module named 'sb3_contrib'`, the RL stack did not install (for example because `pip` stopped at an earlier line in `requirements.txt`). Install it explicitly, then retry the full file:
+
+```powershell
+pip install "stable-baselines3>=1.8.0,<2.0" "sb3-contrib==1.8.0"
+pip install -r requirements.txt
+```
+
 2. A **pretrained MaskablePPO** checkpoint in Stable-Baselines3 format (a single `.zip` file). Put it under `checkpoints/` and use the path **without** the `.zip` extension in commands. Example file: `checkpoints/base_model.zip` → pass `checkpoints/base_model`.
 
 Note: `*.zip` is gitignored; add a checkpoint locally or use `git add -f` if you need it in version control.
@@ -79,4 +86,4 @@ python analyze.py --log log.txt --out proposal.json --apply --snapshot-dir resul
 | `train_run.py` | Finetune checkpoint, evaluate, append log, track best. |
 | `experiment.py` | Load YAML, shape rewards, run fixed rollout eval. |
 | `analyze.py` | Read log, pick best, emit next `patch` JSON. |
-| `checkpoints/` | Read-only location for your starting pretrained `.zip` (see `checkpoints/README.txt`). |
+| `checkpoints/` | Put your starting pretrained `.zip` here (e.g. `checkpoints/base_model.zip`). |

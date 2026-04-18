@@ -1,12 +1,13 @@
 setuptools==66
 PyYAML>=6.0
-https://github.com/andreped/sapai-gym/releases/download/v0.1.1/sapai_gym-0.1.1-py3-none-any.whl
+numpy<=1.23.2
+stable-baselines3>=1.8.0,<2.0
 sb3-contrib==1.8.0
+https://github.com/andreped/sapai-gym/releases/download/v0.1.1/sapai_gym-0.1.1-py3-none-any.whl
 keyboard
 pyautogui
 tqdm
 opencv-python
 scikit-image
 scikit-learn<=1.1
-numpy<=1.23.2
 pynput
