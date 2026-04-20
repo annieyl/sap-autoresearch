@@ -4,7 +4,7 @@ Reinforcement learning for Super Auto Pets (see `README_original.md` for the ful
 
 ## Autoresearch loop (reward tuning)
 
-This repo includes a small **autoresearch** harness that proposes changes to `reward_config.yaml`, runs a short finetune plus evaluation, and logs results to `log.txt`. Each line in the log is one JSON object (JSONL).
+This repo includes a small **autoresearch** harness that proposes changes to `reward_config.yaml` in an attempt to improve an RL model's win rate (validation metric), runs a short finetune plus evaluation, and logs results to `log.txt`. Each line in the log is one JSON object (JSONL).
 
 ### Prerequisites
 

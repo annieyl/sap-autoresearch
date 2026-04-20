@@ -9,6 +9,7 @@ import json
 import os
 import random
 import re
+import time
 import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional
@@ -67,15 +68,49 @@ def _extract_json_object(text: str) -> Dict[str, Any]:
     return json.loads(m.group(0))
 
 
-def _gemini_generate(api_key: str, model_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    req = urllib.request.Request(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+def _gemini_generate(
+    api_key: str,
+    model_name: str,
+    payload: Dict[str, Any],
+    max_wait_seconds: float = 120.0,
+) -> Dict[str, Any]:
+    deadline = time.monotonic() + max_wait_seconds
+    sleep_seconds = 2.0
+    last_error: Optional[Exception] = None
+
+    while True:
+        req = urllib.request.Request(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            last_error = e
+            # Retry transient availability/rate-limit failures for up to max_wait_seconds.
+            if e.code in (429, 500, 502, 503, 504):
+                now = time.monotonic()
+                if now >= deadline:
+                    break
+                time.sleep(min(sleep_seconds, deadline - now))
+                sleep_seconds = min(sleep_seconds * 1.6, 12.0)
+                continue
+            raise
+        except urllib.error.URLError as e:
+            last_error = e
+            now = time.monotonic()
+            if now >= deadline:
+                break
+            time.sleep(min(sleep_seconds, deadline - now))
+            sleep_seconds = min(sleep_seconds * 1.6, 12.0)
+
+    if isinstance(last_error, urllib.error.HTTPError):
+        err_text = last_error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(err_text) from last_error
+    raise RuntimeError(f"Gemini request failed after waiting up to {max_wait_seconds:.0f} seconds")
 
 
 def _gemini_list_models(api_key: str) -> List[str]:
