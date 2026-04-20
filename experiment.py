@@ -1,5 +1,7 @@
 """
 Run a single evaluation: load reward_config.yaml, play games with a frozen policy, return aggregate stats.
+
+PyTorch / sb3_contrib are imported only inside functions so tools like analyze.py can run without loading torch.
 """
 
 from __future__ import annotations
@@ -7,78 +9,31 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import types
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
-import yaml
-
 from sapai_gym import SuperAutoPetsEnv
-from sapai_gym.opponent_gen.opponent_generators import biggest_numbers_horizontal_opp_generator
-from sb3_contrib import MaskablePPO
-from sb3_contrib.common.maskable.utils import get_action_masks
+
+from reward_config import apply_reward_config, load_reward_config, make_env
 
 
-def opponent_generator(num_turns: int):
-    """Match smp.utils.opponent_generator without importing tkinter-heavy smp.utils."""
-    return biggest_numbers_horizontal_opp_generator(num_turns)
+def _get_maskable_ppo():
+    from sb3_contrib import MaskablePPO
 
-DEFAULT_WEIGHTS = {
-    "wins": 1.0,
-    "bad_action": 1.0,
-    "lives": 0.0,
-    "gold": 0.0,
-    "turn": 0.0,
-    "team_power": 0.0,
-}
+    return MaskablePPO
 
 
-def load_reward_config(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-    weights = dict(DEFAULT_WEIGHTS)
-    weights.update((data.get("weights") or {}))
-    return {"weights": weights}
+def _get_action_masks(env):
+    from sb3_contrib.common.maskable.utils import get_action_masks
+
+    return get_action_masks(env)
 
 
-def _team_power_norm(player) -> float:
-    total = 0
-    for slot in player.team:
-        if slot.empty:
-            continue
-        total += int(slot.pet.attack) + int(slot.pet.health)
-    return float(min(total / 200.0, 1.0))
-
-
-def _shaped_get_reward(self):
-    w = getattr(self, "_reward_cfg", DEFAULT_WEIGHTS)
-    p = self.player
-    bad = float(self.bad_action_reward_sum)
-    r = w.get("bad_action", 1.0) * bad
-    r += w.get("wins", 1.0) * (p.wins / 10.0)
-    r += w.get("lives", 0.0) * (p.lives / 10.0)
-    r += w.get("gold", 0.0) * (min(p.gold, 20) / 20.0) * 0.1
-    r += w.get("turn", 0.0) * (1.0 - min(p.turn, 25) / 25.0) * 0.01
-    r += w.get("team_power", 0.0) * _team_power_norm(p)
-    return float(r)
-
-
-def apply_reward_config(env: SuperAutoPetsEnv, weights: Dict[str, float]) -> None:
-    merged = dict(DEFAULT_WEIGHTS)
-    merged.update(weights)
-    env._reward_cfg = merged
-    env.get_reward = types.MethodType(_shaped_get_reward, env)
-
-
-def make_env() -> SuperAutoPetsEnv:
-    return SuperAutoPetsEnv(opponent_generator, valid_actions_only=True)
-
-
-def rollout_episode(model: MaskablePPO, env: SuperAutoPetsEnv) -> Dict[str, Any]:
+def rollout_episode(model: Any, env: SuperAutoPetsEnv) -> Dict[str, Any]:
     obs = env.reset()
     steps = 0
     while True:
-        masks = get_action_masks(env)
+        masks = _get_action_masks(env)
         action, _ = model.predict(obs, action_masks=masks, deterministic=True)
         obs, _reward, done, _info = env.step(int(action))
         steps += 1
@@ -106,6 +61,8 @@ def run_evaluation(
     Play n_rows * n_cols full games (episodes) with the same policy checkpoint.
     Returns (summary, per_episode_records).
     """
+    MaskablePPO = _get_maskable_ppo()
+
     cfg = load_reward_config(reward_config_path)
     weights = cfg["weights"]
 

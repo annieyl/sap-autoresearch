@@ -10,10 +10,9 @@ import os
 import shutil
 from typing import Any, Dict, Optional, Tuple
 
-from sb3_contrib import MaskablePPO
-
 from analyze import best_record, read_log_records
-from experiment import append_log, apply_reward_config, load_reward_config, make_env, run_evaluation
+from experiment import append_log, run_evaluation
+from reward_config import apply_reward_config, load_reward_config, make_env
 
 
 def _verdict(
@@ -51,6 +50,8 @@ def train_run(
     stem = checkpoint_stem[:-4] if checkpoint_stem.endswith(".zip") else checkpoint_stem
     if not os.path.isfile(zip_path):
         raise FileNotFoundError(f"Checkpoint not found: {zip_path}")
+
+    from sb3_contrib import MaskablePPO
 
     cfg = load_reward_config(reward_config_path)
     env = make_env()

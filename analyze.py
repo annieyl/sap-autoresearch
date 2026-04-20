@@ -15,10 +15,16 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from experiment import DEFAULT_WEIGHTS, load_reward_config
+from reward_config import DEFAULT_WEIGHTS, load_reward_config
 
 IDEA_PATH = "idea.md"
 REWARD_CONFIG_PATH = "reward_config.yaml"
+DEFAULT_GEMINI_CANDIDATES = [
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
+    
+    "gemini-2.0-flash-lite"
+]
 
 
 def read_log_records(log_path: str) -> List[Dict[str, Any]]:
@@ -61,53 +67,95 @@ def _extract_json_object(text: str) -> Dict[str, Any]:
     return json.loads(m.group(0))
 
 
-def propose_with_openai(
+def _gemini_generate(api_key: str, model_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    req = urllib.request.Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _gemini_list_models(api_key: str) -> List[str]:
+    req = urllib.request.Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}",
+        headers={"Content-Type": "application/json"},
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        body = json.loads(resp.read().decode("utf-8"))
+
+    names: List[str] = []
+    for model in body.get("models", []):
+        methods = model.get("supportedGenerationMethods") or []
+        if "generateContent" in methods:
+            name = str(model.get("name", ""))
+            if name.startswith("models/"):
+                name = name.split("/", 1)[1]
+            if name:
+                names.append(name)
+    return names
+
+
+def propose_with_gemini(
     idea_text: str,
     recent: List[Dict[str, Any]],
     current_weights: Dict[str, float],
     best: Optional[Dict[str, Any]] = None,
-    model: str = "gpt-4o-mini",
+    model: str = "gemini-2.5-flash",
 ) -> Dict[str, Any]:
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set")
+        raise RuntimeError("GEMINI_API_KEY is not set")
 
-    payload = {
-        "model": os.environ.get("AUTORESEARCH_MODEL", model),
-        "messages": [
-            {
-                "role": "system",
-                "content": "You output only valid JSON objects as specified by the user.",
-            },
-            {
-                "role": "user",
-                "content": idea_text
-                + "\n\n## Current weights\n"
-                + json.dumps(current_weights, indent=2)
-                + "\n\n## Best experiment so far\n"
-                + json.dumps(best or {}, indent=2)
-                + "\n\n## Recent experiments (oldest to newest)\n"
-                + json.dumps(recent, indent=2),
-            },
-        ],
-        "temperature": 0.4,
-    }
-    req = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
-        method="POST",
+    prompt = (
+        "You output only valid JSON objects as specified by the user.\n\n"
+        + idea_text
+        + "\n\n## Current weights\n"
+        + json.dumps(current_weights, indent=2)
+        + "\n\n## Best experiment so far\n"
+        + json.dumps(best or {}, indent=2)
+        + "\n\n## Recent experiments (oldest to newest)\n"
+        + json.dumps(recent, indent=2)
     )
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.4,
+            "responseMimeType": "application/json",
+        },
+    }
+    requested_model = os.environ.get("AUTORESEARCH_MODEL", model)
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+        body = _gemini_generate(api_key, requested_model, payload)
     except urllib.error.HTTPError as e:
-        raise RuntimeError(e.read().decode("utf-8", errors="replace")) from e
+        err_text = e.read().decode("utf-8", errors="replace")
+        if e.code == 404:
+            try:
+                available = _gemini_list_models(api_key)
+            except Exception:
+                available = []
+            preferred = [requested_model] + DEFAULT_GEMINI_CANDIDATES + available
+            dedup: List[str] = []
+            for m in preferred:
+                if m and m not in dedup:
+                    dedup.append(m)
+            for candidate in dedup:
+                if candidate == requested_model:
+                    continue
+                try:
+                    body = _gemini_generate(api_key, candidate, payload)
+                    break
+                except urllib.error.HTTPError:
+                    continue
+            else:
+                raise RuntimeError(err_text) from e
+        else:
+            raise RuntimeError(err_text) from e
 
-    content = body["choices"][0]["message"]["content"]
+    content = body["candidates"][0]["content"]["parts"][0]["text"]
     return _extract_json_object(content)
 
 
@@ -154,9 +202,9 @@ def propose_next(
     current = load_reward_config(reward_config_path)["weights"]
     best = best_record(records)
 
-    if os.environ.get("OPENAI_API_KEY"):
+    if os.environ.get("GEMINI_API_KEY"):
         idea = load_idea_text(idea_path)
-        return propose_with_openai(idea, recent, current, best)
+        return propose_with_gemini(idea, recent, current, best)
 
     rng = random.Random(seed)
     return propose_heuristic(recent, current, rng)

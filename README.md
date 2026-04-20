@@ -26,10 +26,24 @@ powershell -ExecutionPolicy Bypass -File .\install_deps.ps1
 pip install -U pip
 pip install "setuptools>=59.5,<65.0" wheel
 pip install "gym==0.21.0" --no-build-isolation
+pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
 ```
 
-**Anaconda / conda base:** install into a **dedicated virtual environment** (`python -m venv .venv` then activate). The base env already contains packages like `numba`, `gensim`, and `tables`; mixing them with `pip install -r requirements.txt` produces resolver warnings and hard conflicts (for example `numba 0.57` needs `numpy<1.25`, which this file respects—upgrading numpy in base can still break other conda tools).
+**Anaconda / conda:** install into a **dedicated virtual environment** (`python -m venv .venv` then activate). After `.\.venv\Scripts\activate`, your prompt should show **only** `(.venv)`, not `(.venv) (base)`. If `(base)` is still there, run **`conda deactivate`** (possibly twice) until conda is gone. Keeping `(base)` while using a venv is a common cause of **PyTorch `c10.dll` / WinError 1114** because DLLs from conda and the venv get mixed on `PATH`.
+
+The base env already contains packages like `numba`, `gensim`, and `tables`; mixing them with `pip install -r requirements.txt` produces resolver warnings and hard conflicts (for example `numba 0.57` needs `numpy<1.25`, which this file respects—upgrading numpy in base can still break other conda tools).
+
+If you see **`OSError: [WinError 1114]`** loading **`torch\lib\c10.dll`**, PyTorch is usually a **CUDA** build that cannot load on your machine (missing or mismatched NVIDIA/CUDA DLLs), or the install is corrupted. Fix:
+
+```powershell
+pip uninstall -y torch torchvision torchaudio
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+```
+
+Then reinstall the rest (`pip install -r requirements.txt` or re-run `install_deps.ps1`). If it still fails, install the [VC++ 2015–2022 x64 redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) and ensure you run Python from this project’s **venv**, not a mixed Anaconda `PATH`.
+
+If you see `TypeError: OneHotEncoder.__init__() got an unexpected keyword argument 'sparse'` from `sapai_gym`, your **scikit-learn is too new** (1.4+ removed `sparse=`). Reinstall with the project cap: `pip install "scikit-learn>=1.2.2,<1.4.0"`.
 
 If you see `ModuleNotFoundError: No module named 'sb3_contrib'`, the RL stack did not install (for example because `pip` stopped at an earlier line in `requirements.txt`). Install it explicitly, then retry the full file:
 
@@ -67,8 +81,7 @@ When a run sets a new best `mean_trophies` (ties broken by `win_rate`), the loop
 
 ### LLM-driven proposals (optional)
 
-With `OPENAI_API_KEY` set, `analyze.py` calls the Chat Completions API using the prompt in `idea.md`. Override the model name with `AUTORESEARCH_MODEL` if you want.
-
+With `GEMINI_API_KEY` set, `analyze.py` calls the Gemini API using the prompt in `idea.md`. 
 Without an API key, the loop uses a small **offline** heuristic instead of an LLM.
 
 ### Run pieces manually
@@ -98,9 +111,15 @@ python analyze.py --log log.txt --out proposal.json --apply --snapshot-dir resul
 |------|------|
 | `idea.md` | Instructions for the hypothesis agent (when using OpenAI). |
 | `reward_config.yaml` | Active reward weights; updated when patches are applied. |
+| `reward_config.py` | YAML + env reward shaping (no PyTorch import). |
 | `log.txt` | Append-only JSONL experiment log. |
 | `run_loop.py` | Orchestrates analyze → patch → `train_run` for N iterations. |
 | `train_run.py` | Finetune checkpoint, evaluate, append log, track best. |
 | `experiment.py` | Load YAML, shape rewards, run fixed rollout eval. |
 | `analyze.py` | Read log, pick best, emit next `patch` JSON. |
 | `checkpoints/` | Put your starting pretrained `.zip` here (e.g. `checkpoints/base_model.zip`). |
+
+# Example training run 
+Command: `python run_loop.py --iters 5 --checkpoint checkpoints/base_model --finetune-steps 2048`
+![alt text](image.png)
+
