@@ -21,7 +21,7 @@ You may propose changes only to these keys (floats):
 | `turn` | Encourages earlier progress (uses `1 - turn/25`). |
 | `team_power` | Encourages stronger board (normalized sum of team attack+health). |
 
-Keep weights in a sensible range (e.g. **-1.0 to 2.0**). Small deltas (±0.02–0.1) are usually safer than huge jumps.
+Keep weights in a sensible range (e.g. **-1.0 to 2.0**). Small deltas (±0.1–0.5) are usually safer than huge jumps.
 
 ## Context you receive
 
@@ -37,4 +37,4 @@ Example shape: `{"patch": {"wins": 1.0, "lives": 0.02}, "rationale": "..."}`
 Rules:
 
 - `patch` contains **only** keys you want to **change** from their current YAML values (subset of the tunable keys above).
-- `rationale` is exactly **one sentence**.
+- `rationale` is 2-3 sentences.
