@@ -1,7 +1,7 @@
 weights:
   bad_action: 1.0
-  gold: 0.01
+  gold: 0.02
   lives: 0.0
-  team_power: 0.03
+  team_power: 0.05
   turn: 0.24000000000000002
   wins: 1.05
